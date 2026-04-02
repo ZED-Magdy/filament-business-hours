@@ -4,9 +4,40 @@
             state: $wire.$entangle('{{ $getStatePath() }}'),
             enabled: true,
             showExceptionForm: false,
-            newException: { date: '', hours: [], description: '' },
+            newException: { date: '', start: '', end: '', label: '' },
 
             init() {
+                this.ensureState();
+                this.normalizeExceptions();
+                this.enabled = this.state?.enabled !== false;
+
+                this.$watch('state', (val) => {
+                    if (val && typeof val === 'object' && !val.hours) {
+                        this.ensureState();
+                        this.normalizeExceptions();
+                    }
+                });
+            },
+
+            normalizeExceptions() {
+                if (!this.state?.exceptions) return;
+                if (!Array.isArray(this.state.exceptions)) {
+                    const arr = [];
+                    for (const [date, hours] of Object.entries(this.state.exceptions)) {
+                        const range = Array.isArray(hours) && hours.length > 0 ? hours[0] : '';
+                        const parts = range ? range.split('-') : ['', ''];
+                        arr.push({ date, start: parts[0] || '', end: parts[1] || '', label: '' });
+                    }
+                    this.state.exceptions = arr;
+                }
+            },
+
+            toggleEnabled() {
+                this.enabled = !this.enabled;
+                this.state.enabled = this.enabled;
+            },
+
+            ensureState() {
                 if (!this.state || typeof this.state !== 'object') {
                     this.state = {
                         hours: @js(\ZEDMagdy\FilamentBusinessHours\FilamentBusinessHours::getDefaultHours()),
@@ -15,37 +46,22 @@
                         enabled: true,
                     };
                 }
-
                 if (!this.state.hours) {
                     this.state.hours = @js(\ZEDMagdy\FilamentBusinessHours\FilamentBusinessHours::getDefaultHours());
                 }
-
                 if (!this.state.exceptions) {
                     this.state.exceptions = [];
                 }
-
-                if (!Array.isArray(this.state.exceptions)) {
-                    const arr = [];
-                    for (const [date, hours] of Object.entries(this.state.exceptions)) {
-                        arr.push({ date, hours: Array.isArray(hours) ? hours : [], description: '' });
-                    }
-                    this.state.exceptions = arr;
-                }
-
-                this.enabled = this.state.enabled !== false;
-            },
-
-            toggleEnabled() {
-                this.enabled = !this.enabled;
-                this.state.enabled = this.enabled;
             },
 
             isDayEnabled(day) {
+                if (!this.state || !this.state.hours) return false;
                 const hours = this.state.hours[day];
                 return Array.isArray(hours) && hours.length > 0;
             },
 
             toggleDay(day) {
+                this.ensureState();
                 if (this.isDayEnabled(day)) {
                     this.state.hours[day] = [];
                 } else {
@@ -54,6 +70,7 @@
             },
 
             addTimeSlot(day) {
+                this.ensureState();
                 if (!Array.isArray(this.state.hours[day])) {
                     this.state.hours[day] = [];
                 }
@@ -61,10 +78,12 @@
             },
 
             removeTimeSlot(day, index) {
+                this.ensureState();
                 this.state.hours[day].splice(index, 1);
             },
 
             updateTimeRange(day, index, type, value) {
+                this.ensureState();
                 const current = this.state.hours[day][index] || '09:00-17:00';
                 const parts = current.split('-');
                 if (type === 'open') {
@@ -75,11 +94,13 @@
             },
 
             getOpenTime(day, index) {
+                if (!this.state?.hours?.[day]) return '09:00';
                 const range = this.state.hours[day]?.[index] || '09:00-17:00';
                 return range.split('-')[0] || '09:00';
             },
 
             getCloseTime(day, index) {
+                if (!this.state?.hours?.[day]) return '17:00';
                 const range = this.state.hours[day]?.[index] || '09:00-17:00';
                 return range.split('-')[1] || '17:00';
             },
@@ -90,10 +111,11 @@
                 }
                 this.state.exceptions.push({
                     date: this.newException.date,
-                    hours: [...this.newException.hours],
-                    description: this.newException.description || '{{ __('Closed') }}',
+                    start: this.newException.start,
+                    end: this.newException.end,
+                    label: this.newException.label,
                 });
-                this.newException = { date: '', hours: [], description: '' };
+                this.newException = { date: '', start: '', end: '', label: '' };
                 this.showExceptionForm = false;
             },
 
@@ -102,13 +124,13 @@
             },
 
             formatExceptionDisplay(ex) {
-                let label = ex.date;
-                if (ex.hours && ex.hours.length > 0) {
-                    label += ' - ' + ex.hours.join(', ');
+                let text = ex.date;
+                if (ex.start && ex.end) {
+                    text += ' - ' + ex.start + '-' + ex.end;
                 } else {
-                    label += ' - {{ __('All day') }}';
+                    text += ' - {{ __('All day') }}';
                 }
-                return label;
+                return text;
             },
         }"
     >
@@ -133,25 +155,11 @@
             .dark .bh-header {
                 border-color: rgba(255,255,255,0.1);
             }
-            .bh-header-icon {
-                color: #9ca3af;
-                flex-shrink: 0;
-            }
-            .bh-header-title {
-                font-size: 1rem;
-                font-weight: 600;
-                color: #111827;
-            }
-            .dark .bh-header-title {
-                color: #fff;
-            }
-            .bh-header-desc {
-                font-size: 0.875rem;
-                color: #6b7280;
-            }
-            .bh-body {
-                padding: 1.25rem 1.5rem;
-            }
+            .bh-header-icon { color: #9ca3af; flex-shrink: 0; }
+            .bh-header-title { font-size: 1rem; font-weight: 600; color: #111827; }
+            .dark .bh-header-title { color: #fff; }
+            .bh-header-desc { font-size: 0.875rem; color: #6b7280; }
+            .bh-body { padding: 1.25rem 1.5rem; }
             .bh-toggle {
                 position: relative;
                 display: inline-flex;
@@ -162,9 +170,11 @@
                 border-radius: 9999px;
                 border: 2px solid transparent;
                 transition: background-color 200ms ease-in-out;
+                padding: 0;
+                background: none;
             }
             .bh-toggle[data-enabled="true"] {
-                ackground-color: var(--c-primary, #239ea0);
+                background-color: rgb(var(--primary-500, 35 158 160));
             }
             .bh-toggle[data-enabled="false"] {
                 background-color: #d1d5db;
@@ -208,9 +218,7 @@
                 color: #111827;
                 margin-top: 0.125rem;
             }
-            .dark .bh-day-name {
-                color: #fff;
-            }
+            .dark .bh-day-name { color: #fff; }
             .bh-closed-label {
                 display: flex;
                 align-items: center;
@@ -253,13 +261,8 @@
                 width: 7rem;
                 outline: none;
             }
-            .dark .bh-time-input {
-                color: #fff;
-            }
-            .bh-time-input:focus {
-                outline: none;
-                box-shadow: none;
-            }
+            .dark .bh-time-input { color: #fff; }
+            .bh-time-input:focus { outline: none; box-shadow: none; }
             .bh-delete-btn {
                 display: flex;
                 align-items: center;
@@ -270,9 +273,7 @@
                 border: none;
                 flex-shrink: 0;
             }
-            .bh-delete-btn:hover {
-                color: #dc2626;
-            }
+            .bh-delete-btn:hover { color: #dc2626; }
             .bh-add-time-btn {
                 display: inline-flex;
                 align-items: center;
@@ -290,12 +291,8 @@
                 background: rgb(31 41 55);
                 color: #d1d5db;
             }
-            .bh-add-time-btn:hover {
-                background: #f9fafb;
-            }
-            .dark .bh-add-time-btn:hover {
-                background: rgb(55 65 81);
-            }
+            .bh-add-time-btn:hover { background: #f9fafb; }
+            .dark .bh-add-time-btn:hover { background: rgb(55 65 81); }
             .bh-exception-item {
                 display: flex;
                 align-items: center;
@@ -326,17 +323,55 @@
                 background: rgb(31 41 55);
                 color: #d1d5db;
             }
-            .bh-setup-btn:hover {
-                background: #f9fafb;
-            }
+            .bh-setup-btn:hover { background: #f9fafb; }
             .bh-section-title {
                 font-size: 1rem;
                 font-weight: 600;
                 color: #111827;
             }
-            .dark .bh-section-title {
+            .dark .bh-section-title { color: #fff; }
+            .bh-form-label {
+                display: block;
+                font-size: 0.75rem;
+                font-weight: 500;
+                color: #374151;
+                margin-bottom: 0.25rem;
+            }
+            .dark .bh-form-label { color: #d1d5db; }
+            .bh-form-input {
+                display: block;
+                width: 100%;
+                border-radius: 0.5rem;
+                border: 1px solid #d1d5db;
+                padding: 0.5rem 0.75rem;
+                font-size: 0.875rem;
+                color: #111827;
+                background: #fff;
+            }
+            .dark .bh-form-input {
+                border-color: rgba(255,255,255,0.2);
+                background: rgb(31 41 55);
                 color: #fff;
             }
+            .bh-form-input:focus {
+                outline: 2px solid rgb(var(--primary-500, 35 158 160));
+                outline-offset: -1px;
+            }
+            .bh-form-input::placeholder { color: #9ca3af; }
+            .dark .bh-form-input::placeholder { color: #6b7280; }
+            .bh-btn-primary {
+                display: inline-flex;
+                align-items: center;
+                border-radius: 0.5rem;
+                padding: 0.375rem 0.75rem;
+                font-size: 0.75rem;
+                font-weight: 500;
+                color: #fff;
+                cursor: pointer;
+                border: none;
+                background: rgb(var(--primary-500, 35 158 160));
+            }
+            .bh-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
         </style>
 
         <div class="bh-card">
@@ -378,13 +413,10 @@
                             {{-- Timezone Selector --}}
                             @if($hasTimezone())
                                 <div>
-                                    <label style="display:block;font-size:0.875rem;font-weight:500;color:#374151;margin-bottom:0.375rem">
+                                    <label class="bh-form-label" style="font-size:0.875rem;margin-bottom:0.375rem">
                                         {{ __('Timezone') }}
                                     </label>
-                                    <select
-                                        x-model="state.timezone"
-                                        style="display:block;width:100%;border-radius:0.5rem;border:1px solid #d1d5db;background:#fff;padding:0.5rem 2rem 0.5rem 0.75rem;font-size:0.875rem;color:#111827"
-                                    >
+                                    <select x-model="state && state.timezone" class="bh-form-input" style="padding-right:2rem">
                                         @foreach($getTimezoneOptions() as $tz => $label)
                                             <option value="{{ $tz }}">({{ $tz }}) {{ $label }}</option>
                                         @endforeach
@@ -427,7 +459,7 @@
                                             {{-- Open State --}}
                                             <template x-if="isDayEnabled('{{ $day->value }}')">
                                                 <div style="display:flex;flex-direction:column;gap:0.5rem">
-                                                    <template x-for="(range, slotIndex) in (state.hours['{{ $day->value }}'] || [])" :key="'{{ $day->value }}-' + slotIndex">
+                                                    <template x-for="(range, slotIndex) in (state?.hours?.['{{ $day->value }}'] || [])" :key="'{{ $day->value }}-' + slotIndex">
                                                         <div style="display:flex;align-items:center;gap:0.5rem">
                                                             <div class="bh-time-group">
                                                                 <span class="bh-time-prefix">{{ __('From') }}</span>
@@ -482,12 +514,13 @@
                                 <div style="border-top:1px solid #e5e7eb;padding-top:1.25rem">
                                     <div class="bh-section-title" style="margin-bottom:1rem">{{ __('Exceptions') }}</div>
 
+                                    {{-- Exception List --}}
                                     <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1rem">
-                                        <template x-for="(exception, exIndex) in (state.exceptions || [])" :key="'ex-' + exIndex">
+                                        <template x-for="(exception, exIndex) in (state?.exceptions || [])" :key="'ex-' + exIndex">
                                             <div class="bh-exception-item">
                                                 <span style="font-size:0.875rem;color:#6b7280" x-text="formatExceptionDisplay(exception)"></span>
                                                 <div style="display:flex;align-items:center;gap:0.75rem">
-                                                    <span style="font-size:0.875rem;color:#9ca3af" x-text="exception.description || '{{ __('Closed') }}'"></span>
+                                                    <span style="font-size:0.875rem;color:#9ca3af" x-text="exception.label || '{{ __('Closed') }}'"></span>
                                                     <button
                                                         type="button"
                                                         x-on:click="removeException(exIndex)"
@@ -507,22 +540,48 @@
                                         <div style="border-radius:0.5rem;border:1px solid #e5e7eb;background:#fafafa;padding:1rem;display:flex;flex-direction:column;gap:0.75rem">
                                             <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
                                                 <div>
-                                                    <label style="display:block;font-size:0.75rem;font-weight:500;color:#374151;margin-bottom:0.25rem">{{ __('Date (YYYY-MM-DD or MM-DD)') }}</label>
+                                                    <label class="bh-form-label">{{ __('Date or range') }}</label>
                                                     <input
                                                         type="text"
                                                         x-model="newException.date"
-                                                        placeholder="12-25 or 2026-12-25"
-                                                        style="display:block;width:100%;border-radius:0.5rem;border:1px solid #d1d5db;padding:0.5rem 0.75rem;font-size:0.875rem;color:#111827;background:#fff"
+                                                        placeholder="12-25, 2026-12-25, 06-25 to 07-01"
+                                                        class="bh-form-input"
                                                     />
                                                 </div>
                                                 <div>
-                                                    <label style="display:block;font-size:0.75rem;font-weight:500;color:#374151;margin-bottom:0.25rem">{{ __('Description') }}</label>
+                                                    <label class="bh-form-label">{{ __('Label / Note') }}</label>
                                                     <input
                                                         type="text"
-                                                        x-model="newException.description"
+                                                        x-model="newException.label"
                                                         placeholder="{{ __('e.g. Closed for Christmas') }}"
-                                                        style="display:block;width:100%;border-radius:0.5rem;border:1px solid #d1d5db;padding:0.5rem 0.75rem;font-size:0.875rem;color:#111827;background:#fff"
+                                                        class="bh-form-input"
                                                     />
+                                                </div>
+                                            </div>
+                                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+                                                <div>
+                                                    <label class="bh-form-label">{{ __('Start time (empty = all day)') }}</label>
+                                                    <div class="bh-time-group" style="width:100%">
+                                                        <span class="bh-time-prefix">{{ __('From') }}</span>
+                                                        <input
+                                                            type="time"
+                                                            x-model="newException.start"
+                                                            class="bh-time-input"
+                                                            style="width:100%"
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label class="bh-form-label">{{ __('End time (empty = all day)') }}</label>
+                                                    <div class="bh-time-group" style="width:100%">
+                                                        <span class="bh-time-prefix">{{ __('To') }}</span>
+                                                        <input
+                                                            type="time"
+                                                            x-model="newException.end"
+                                                            class="bh-time-input"
+                                                            style="width:100%"
+                                                        />
+                                                    </div>
                                                 </div>
                                             </div>
                                             <div style="display:flex;align-items:center;gap:0.75rem">
@@ -530,14 +589,13 @@
                                                     type="button"
                                                     x-on:click="addException()"
                                                     :disabled="!newException.date"
-                                                    style="display:inline-flex;align-items:center;border-radius:0.5rem;padding:0.375rem 0.75rem;font-size:0.75rem;font-weight:500;color:#fff;cursor:pointer;border:none;opacity:1;background:var(--c-primary, #239ea0)"
-                                                    :style="!newException.date ? 'opacity:0.5;cursor:not-allowed' : ''"
+                                                    class="bh-btn-primary"
                                                 >
                                                     {{ __('Add') }}
                                                 </button>
                                                 <button
                                                     type="button"
-                                                    x-on:click="showExceptionForm = false; newException = { date: '', hours: [], description: '' }"
+                                                    x-on:click="showExceptionForm = false; newException = { date: '', start: '', end: '', label: '' }"
                                                     class="bh-add-time-btn"
                                                 >
                                                     {{ __('Cancel') }}

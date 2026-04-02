@@ -38,7 +38,25 @@ trait HasBusinessHours
         }
 
         if (! empty($exceptions)) {
-            $config['exceptions'] = $exceptions;
+            $normalizedExceptions = [];
+
+            foreach ($exceptions as $key => $value) {
+                if (is_array($value) && isset($value['date'])) {
+                    $date = $value['date'];
+                    $start = $value['start'] ?? '';
+                    $end = $value['end'] ?? '';
+
+                    if ($start !== '' && $end !== '') {
+                        $normalizedExceptions[$date] = [$start.'-'.$end];
+                    } else {
+                        $normalizedExceptions[$date] = [];
+                    }
+                } else {
+                    $normalizedExceptions[$key] = is_array($value) ? $value : [];
+                }
+            }
+
+            $config['exceptions'] = $normalizedExceptions;
         }
 
         if ($timezone) {

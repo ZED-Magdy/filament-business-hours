@@ -60,18 +60,36 @@ class BusinessHoursField extends Field
                 }
 
                 $date = $exception['date'];
-                $ranges = $exception['hours'] ?? [];
+                $start = $exception['start'] ?? '';
+                $end = $exception['end'] ?? '';
 
-                $normalized[$date] = array_values(array_filter(
-                    is_array($ranges) ? $ranges : [],
-                    fn ($range): bool => is_string($range) && str_contains($range, '-') && $range !== '-'
-                ));
+                if ($start !== '' && $end !== '') {
+                    $normalized[$date] = [$start.'-'.$end];
+                } else {
+                    $normalized[$date] = [];
+                }
+            }
+
+            // Preserve the full exception data for the form to read back
+            $exceptionDetails = [];
+
+            foreach ($exceptions as $exception) {
+                if (! is_array($exception) || empty($exception['date'] ?? '')) {
+                    continue;
+                }
+
+                $exceptionDetails[] = [
+                    'date' => $exception['date'],
+                    'start' => $exception['start'] ?? '',
+                    'end' => $exception['end'] ?? '',
+                    'label' => $exception['label'] ?? '',
+                ];
             }
 
             return [
                 'enabled' => $state['enabled'] ?? true,
                 'hours' => $hours,
-                'exceptions' => $normalized,
+                'exceptions' => $exceptionDetails,
                 'timezone' => $state['timezone'] ?? $this->getDefaultTimezone(),
             ];
         });
