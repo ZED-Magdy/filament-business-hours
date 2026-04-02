@@ -11,6 +11,8 @@
             showExceptionForm: false,
             newException: { date: '', start: '', end: '', label: '' },
             statePath: '{{ $statePath }}',
+            errors: {},
+            exError: '',
 
             init() {
                 if (this.state && this.state.hours) {
@@ -30,6 +32,47 @@
             getOpenTime(day, i) { const r = this.h()[day]; return (r && r[i]) ? r[i].split('-')[0] : '09:00'; },
             getCloseTime(day, i) { const r = this.h()[day]; return (r && r[i]) ? r[i].split('-')[1] : '17:00'; },
 
+            slotError(day, i) {
+                return this.errors[day + '-' + i] || '';
+            },
+
+            validateSlot(day, i) {
+                const open = this.getOpenTime(day, i);
+                const close = this.getCloseTime(day, i);
+                const key = day + '-' + i;
+                if (open && close && open >= close) {
+                    this.errors[key] = '{{ __('From must be before To') }}';
+                    return false;
+                }
+                delete this.errors[key];
+                return true;
+            },
+
+            validateDate(date) {
+                if (!date) return false;
+                const full = /^\d{4}-\d{2}-\d{2}$/;
+                const recurring = /^\d{2}-\d{2}$/;
+                const range = /^\d{2}-\d{2}\s+to\s+\d{2}-\d{2}$/;
+                const fullRange = /^\d{4}-\d{2}-\d{2}\s+to\s+\d{4}-\d{2}-\d{2}$/;
+                return full.test(date) || recurring.test(date) || range.test(date) || fullRange.test(date);
+            },
+
+            validateExceptionTimes() {
+                const s = this.newException.start;
+                const e = this.newException.end;
+                if (!s && !e) return true;
+                if ((s && !e) || (!s && e)) {
+                    this.exError = '{{ __('Both start and end are required, or leave both empty for all day') }}';
+                    return false;
+                }
+                if (s >= e) {
+                    this.exError = '{{ __('Start must be before End') }}';
+                    return false;
+                }
+                this.exError = '';
+                return true;
+            },
+
             toggleEnabled() {
                 this.enabled = !this.enabled;
                 this.state.enabled = this.enabled;
@@ -45,6 +88,7 @@
                 this.save();
             },
             removeTimeSlot(day, i) {
+                delete this.errors[day + '-' + i];
                 this.state.hours[day].splice(i, 1);
                 this.save();
             },
@@ -52,6 +96,7 @@
                 if (!this.state.hours[day]?.[i]) return;
                 const p = this.state.hours[day][i].split('-');
                 this.state.hours[day][i] = type === 'open' ? val + '-' + (p[1]||'17:00') : (p[0]||'09:00') + '-' + val;
+                this.validateSlot(day, i);
                 this.save();
             },
             setTimezone(val) {
@@ -59,10 +104,17 @@
                 this.save();
             },
             addException() {
+                this.exError = '';
+                if (!this.validateDate(this.newException.date)) {
+                    this.exError = '{{ __('Invalid date format. Use YYYY-MM-DD, MM-DD, or MM-DD to MM-DD') }}';
+                    return;
+                }
+                if (!this.validateExceptionTimes()) return;
                 if (!Array.isArray(this.state.exceptions)) this.state.exceptions = [];
                 this.state.exceptions.push({ ...this.newException });
                 this.newException = { date: '', start: '', end: '', label: '' };
                 this.showExceptionForm = false;
+                this.exError = '';
                 this.save();
             },
             removeException(i) {
@@ -126,6 +178,8 @@
             .bh-form-input::placeholder { color:#9ca3af }
             .bh-btn-primary { display:inline-flex; align-items:center; border-radius:.5rem; padding:.375rem .75rem; font-size:.75rem; font-weight:500; color:#fff; cursor:pointer; border:none; background:rgb(var(--primary-500, 35 158 160)) }
             .bh-btn-primary:disabled { opacity:.5; cursor:not-allowed }
+            .bh-form-input.bh-error { border-color:#ef4444 }
+            .bh-form-input.bh-error:focus { outline-color:#ef4444 }
         </style>
 
         <div class="bh-card" x-show="ok()">
@@ -181,18 +235,21 @@
                                             </div>
                                             <div x-show="isDayEnabled('{{ $day->value }}')" style="display:flex;flex-direction:column;gap:.5rem">
                                                 <template x-for="(range, slotIndex) in (h()['{{ $day->value }}'] || [])" :key="'{{ $day->value }}-' + slotIndex">
-                                                    <div style="display:flex;align-items:center;gap:.5rem">
-                                                        <div class="bh-time-group">
-                                                            <span class="bh-time-prefix">{{ __('From') }}</span>
-                                                            <input type="time" :value="getOpenTime('{{ $day->value }}', slotIndex)" x-on:change="updateTimeRange('{{ $day->value }}', slotIndex, 'open', $event.target.value)" class="bh-time-input" />
+                                                    <div>
+                                                        <div style="display:flex;align-items:center;gap:.5rem">
+                                                            <div class="bh-time-group" :style="slotError('{{ $day->value }}', slotIndex) ? 'border-color:#ef4444' : ''">
+                                                                <span class="bh-time-prefix">{{ __('From') }}</span>
+                                                                <input type="time" :value="getOpenTime('{{ $day->value }}', slotIndex)" x-on:change="updateTimeRange('{{ $day->value }}', slotIndex, 'open', $event.target.value)" class="bh-time-input" />
+                                                            </div>
+                                                            <div class="bh-time-group" :style="slotError('{{ $day->value }}', slotIndex) ? 'border-color:#ef4444' : ''">
+                                                                <span class="bh-time-prefix">{{ __('To') }}</span>
+                                                                <input type="time" :value="getCloseTime('{{ $day->value }}', slotIndex)" x-on:change="updateTimeRange('{{ $day->value }}', slotIndex, 'close', $event.target.value)" class="bh-time-input" />
+                                                            </div>
+                                                            <button type="button" x-on:click="removeTimeSlot('{{ $day->value }}', slotIndex)" class="bh-delete-btn">
+                                                                <svg style="width:1.25rem;height:1.25rem" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+                                                            </button>
                                                         </div>
-                                                        <div class="bh-time-group">
-                                                            <span class="bh-time-prefix">{{ __('To') }}</span>
-                                                            <input type="time" :value="getCloseTime('{{ $day->value }}', slotIndex)" x-on:change="updateTimeRange('{{ $day->value }}', slotIndex, 'close', $event.target.value)" class="bh-time-input" />
-                                                        </div>
-                                                        <button type="button" x-on:click="removeTimeSlot('{{ $day->value }}', slotIndex)" class="bh-delete-btn">
-                                                            <svg style="width:1.25rem;height:1.25rem" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
-                                                        </button>
+                                                        <p x-show="slotError('{{ $day->value }}', slotIndex)" x-text="slotError('{{ $day->value }}', slotIndex)" style="color:#ef4444;font-size:.75rem;margin:.25rem 0 0"></p>
                                                     </div>
                                                 </template>
                                                 <div style="display:flex;justify-content:center;padding-top:.25rem">
@@ -244,9 +301,10 @@
                                                     <div class="bh-time-group" style="width:100%"><span class="bh-time-prefix">{{ __('To') }}</span><input type="time" x-model="newException.end" class="bh-time-input" style="width:100%" /></div>
                                                 </div>
                                             </div>
+                                            <p x-show="exError" x-text="exError" style="color:#ef4444;font-size:.75rem;margin:0"></p>
                                             <div style="display:flex;align-items:center;gap:.75rem">
                                                 <button type="button" x-on:click="addException()" :disabled="!newException.date" class="bh-btn-primary">{{ __('Add') }}</button>
-                                                <button type="button" x-on:click="showExceptionForm = false; newException = { date: '', start: '', end: '', label: '' }" class="bh-add-time-btn">{{ __('Cancel') }}</button>
+                                                <button type="button" x-on:click="showExceptionForm = false; exError = ''; newException = { date: '', start: '', end: '', label: '' }" class="bh-add-time-btn">{{ __('Cancel') }}</button>
                                             </div>
                                         </div>
                                     </div>
