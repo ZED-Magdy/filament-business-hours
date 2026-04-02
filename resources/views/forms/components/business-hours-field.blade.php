@@ -139,7 +139,7 @@
             .bh-header-desc { font-size:.875rem; color:#6b7280 }
             .bh-body { padding:1.25rem 1.5rem }
             .bh-toggle { position:relative; display:inline-flex; height:1.5rem; width:2.75rem; flex-shrink:0; cursor:pointer; border-radius:9999px; border:2px solid transparent; transition:background-color 200ms; padding:0; background:none }
-            .bh-toggle[data-enabled="true"] { background-color:rgb(var(--primary-500, 35 158 160)) }
+            .bh-toggle[data-enabled="true"] { background-color:#239ea0 }
             .bh-toggle[data-enabled="false"] { background-color:#d1d5db }
             .dark .bh-toggle[data-enabled="false"] { background-color:#4b5563 }
             .bh-toggle-knob { pointer-events:none; display:inline-block; height:1.25rem; width:1.25rem; border-radius:9999px; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.1); transition:transform 200ms }
@@ -174,9 +174,9 @@
             .dark .bh-form-label { color:#d1d5db }
             .bh-form-input { display:block; width:100%; border-radius:.5rem; border:1px solid #d1d5db; padding:.5rem .75rem; font-size:.875rem; color:#111827; background:#fff }
             .dark .bh-form-input { border-color:rgba(255,255,255,.2); background:rgb(31 41 55); color:#fff }
-            .bh-form-input:focus { outline:2px solid rgb(var(--primary-500, 35 158 160)); outline-offset:-1px }
+            .bh-form-input:focus { outline:2px solid #239ea0; outline-offset:-1px }
             .bh-form-input::placeholder { color:#9ca3af }
-            .bh-btn-primary { display:inline-flex; align-items:center; border-radius:.5rem; padding:.375rem .75rem; font-size:.75rem; font-weight:500; color:#fff; cursor:pointer; border:none; background:rgb(var(--primary-500, 35 158 160)) }
+            .bh-btn-primary { display:inline-flex; align-items:center; border-radius:.5rem; padding:.375rem .75rem; font-size:.75rem; font-weight:500; color:#fff; cursor:pointer; border:none; background:#239ea0 }
             .bh-btn-primary:disabled { opacity:.5; cursor:not-allowed }
             .bh-form-input.bh-error { border-color:#ef4444 }
             .bh-form-input.bh-error:focus { outline-color:#ef4444 }
