@@ -48,8 +48,20 @@ trait HasBusinessHours
         return OpeningHours::create($config);
     }
 
+    public function isBusinessHoursEnabled(): bool
+    {
+        $hoursColumn = FilamentBusinessHours::getHoursColumn();
+        $data = $this->{$hoursColumn} ?? [];
+
+        return ($data['enabled'] ?? true) !== false;
+    }
+
     public function isOpen(?DateTimeInterface $at = null): bool
     {
+        if (! $this->isBusinessHoursEnabled()) {
+            return false;
+        }
+
         return $this->getOpeningHours()->isOpenAt(
             $at ?? Carbon::now($this->getBusinessTimezone())
         );

@@ -69,6 +69,7 @@ class BusinessHoursField extends Field
             }
 
             return [
+                'enabled' => $state['enabled'] ?? true,
                 'hours' => $hours,
                 'exceptions' => $normalized,
                 'timezone' => $state['timezone'] ?? $this->getDefaultTimezone(),

@@ -2,8 +2,9 @@
     <div
         x-data="{
             state: $wire.$entangle('{{ $getStatePath() }}'),
-            collapsed: {},
-            showExceptions: false,
+            enabled: true,
+            showExceptionForm: false,
+            newException: { date: '', hours: [], description: '' },
 
             init() {
                 if (!this.state || typeof this.state !== 'object') {
@@ -11,6 +12,7 @@
                         hours: @js(\ZEDMagdy\FilamentBusinessHours\FilamentBusinessHours::getDefaultHours()),
                         exceptions: [],
                         timezone: @js($getDefaultTimezone()),
+                        enabled: true,
                     };
                 }
 
@@ -25,16 +27,17 @@
                 if (!Array.isArray(this.state.exceptions)) {
                     const arr = [];
                     for (const [date, hours] of Object.entries(this.state.exceptions)) {
-                        arr.push({ date, hours: Array.isArray(hours) ? hours : [] });
+                        arr.push({ date, hours: Array.isArray(hours) ? hours : [], description: '' });
                     }
                     this.state.exceptions = arr;
                 }
 
-                @if($isCollapsible())
-                    @foreach($getDays() as $day)
-                        this.collapsed['{{ $day->value }}'] = true;
-                    @endforeach
-                @endif
+                this.enabled = this.state.enabled !== false;
+            },
+
+            toggleEnabled() {
+                this.enabled = !this.enabled;
+                this.state.enabled = this.enabled;
             },
 
             isDayEnabled(day) {
@@ -81,304 +84,486 @@
                 return range.split('-')[1] || '17:00';
             },
 
-            toggleCollapse(day) {
-                this.collapsed[day] = !this.collapsed[day];
-            },
-
             addException() {
                 if (!Array.isArray(this.state.exceptions)) {
                     this.state.exceptions = [];
                 }
-                this.state.exceptions.push({ date: '', hours: [] });
+                this.state.exceptions.push({
+                    date: this.newException.date,
+                    hours: [...this.newException.hours],
+                    description: this.newException.description || '{{ __('Closed') }}',
+                });
+                this.newException = { date: '', hours: [], description: '' };
+                this.showExceptionForm = false;
             },
 
             removeException(index) {
                 this.state.exceptions.splice(index, 1);
             },
 
-            toggleExceptionClosed(index) {
-                if (this.state.exceptions[index].hours.length > 0) {
-                    this.state.exceptions[index].hours = [];
+            formatExceptionDisplay(ex) {
+                let label = ex.date;
+                if (ex.hours && ex.hours.length > 0) {
+                    label += ' - ' + ex.hours.join(', ');
                 } else {
-                    this.state.exceptions[index].hours = ['09:00-17:00'];
+                    label += ' - {{ __('All day') }}';
                 }
-            },
-
-            addExceptionSlot(index) {
-                this.state.exceptions[index].hours.push('09:00-17:00');
-            },
-
-            removeExceptionSlot(exIndex, slotIndex) {
-                this.state.exceptions[exIndex].hours.splice(slotIndex, 1);
-            },
-
-            updateExceptionRange(exIndex, slotIndex, type, value) {
-                const current = this.state.exceptions[exIndex].hours[slotIndex] || '09:00-17:00';
-                const parts = current.split('-');
-                if (type === 'open') {
-                    this.state.exceptions[exIndex].hours[slotIndex] = value + '-' + (parts[1] || '17:00');
-                } else {
-                    this.state.exceptions[exIndex].hours[slotIndex] = (parts[0] || '09:00') + '-' + value;
-                }
-            },
-
-            getExceptionOpenTime(exIndex, slotIndex) {
-                const range = this.state.exceptions[exIndex]?.hours?.[slotIndex] || '09:00-17:00';
-                return range.split('-')[0] || '09:00';
-            },
-
-            getExceptionCloseTime(exIndex, slotIndex) {
-                const range = this.state.exceptions[exIndex]?.hours?.[slotIndex] || '09:00-17:00';
-                return range.split('-')[1] || '17:00';
+                return label;
             },
         }"
-        class="space-y-4"
     >
-        {{-- Timezone Selector --}}
-        @if($hasTimezone())
-            <div>
-                <label class="fi-fo-field-wrp-label inline-flex items-center gap-x-3">
-                    <span class="text-sm font-medium leading-6 text-gray-950 dark:text-white">
-                        {{ __('Timezone') }}
-                    </span>
-                </label>
-                <select
-                    x-model="state.timezone"
-                    class="fi-select-input block w-full rounded-lg border-none bg-transparent py-1.5 pe-8 text-base text-gray-950 transition duration-75 focus:ring-2 focus:ring-primary-600 disabled:text-gray-500 disabled:[-webkit-text-fill-color:theme(colors.gray.500)] dark:text-white dark:focus:ring-primary-500 sm:text-sm sm:leading-6 [&_optgroup]:bg-white [&_optgroup]:dark:bg-gray-900 [&_option]:bg-white [&_option]:dark:bg-gray-900 shadow-sm ring-1 ring-gray-950/10 dark:ring-white/20"
-                >
-                    @foreach($getTimezoneOptions() as $tz => $label)
-                        <option value="{{ $tz }}">{{ $label }}</option>
-                    @endforeach
-                </select>
-            </div>
-        @endif
+        <style>
+            .bh-card {
+                border-radius: 0.75rem;
+                border: 1px solid #e5e7eb;
+                background: #fff;
+                overflow: hidden;
+            }
+            .dark .bh-card {
+                border-color: rgba(255,255,255,0.1);
+                background: rgb(17 24 39);
+            }
+            .bh-header {
+                display: flex;
+                align-items: center;
+                gap: 0.75rem;
+                padding: 1rem 1.5rem;
+                border-bottom: 1px solid #e5e7eb;
+            }
+            .dark .bh-header {
+                border-color: rgba(255,255,255,0.1);
+            }
+            .bh-header-icon {
+                color: #9ca3af;
+                flex-shrink: 0;
+            }
+            .bh-header-title {
+                font-size: 1rem;
+                font-weight: 600;
+                color: #111827;
+            }
+            .dark .bh-header-title {
+                color: #fff;
+            }
+            .bh-header-desc {
+                font-size: 0.875rem;
+                color: #6b7280;
+            }
+            .bh-body {
+                padding: 1.25rem 1.5rem;
+            }
+            .bh-toggle {
+                position: relative;
+                display: inline-flex;
+                height: 1.5rem;
+                width: 2.75rem;
+                flex-shrink: 0;
+                cursor: pointer;
+                border-radius: 9999px;
+                border: 2px solid transparent;
+                transition: background-color 200ms ease-in-out;
+            }
+            .bh-toggle[data-enabled="true"] {
+                ackground-color: var(--c-primary, #239ea0);
+            }
+            .bh-toggle[data-enabled="false"] {
+                background-color: #d1d5db;
+            }
+            .dark .bh-toggle[data-enabled="false"] {
+                background-color: #4b5563;
+            }
+            .bh-toggle-knob {
+                pointer-events: none;
+                display: inline-block;
+                height: 1.25rem;
+                width: 1.25rem;
+                border-radius: 9999px;
+                background: #fff;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                transition: transform 200ms ease-in-out;
+            }
+            .bh-toggle[data-enabled="true"] .bh-toggle-knob {
+                transform: translateX(1.25rem);
+            }
+            .bh-toggle[data-enabled="false"] .bh-toggle-knob {
+                transform: translateX(0);
+            }
+            .bh-day-row {
+                padding: 0.75rem 0;
+                display: flex;
+                align-items: flex-start;
+                gap: 1rem;
+            }
+            .bh-day-row + .bh-day-row {
+                border-top: 1px solid #f3f4f6;
+            }
+            .dark .bh-day-row + .bh-day-row {
+                border-color: rgba(255,255,255,0.05);
+            }
+            .bh-day-name {
+                width: 7rem;
+                flex-shrink: 0;
+                font-size: 0.875rem;
+                font-weight: 500;
+                color: #111827;
+                margin-top: 0.125rem;
+            }
+            .dark .bh-day-name {
+                color: #fff;
+            }
+            .bh-closed-label {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                color: #9ca3af;
+                font-size: 0.875rem;
+                margin-top: 0.125rem;
+            }
+            .bh-time-group {
+                display: inline-flex;
+                align-items: stretch;
+                border-radius: 0.5rem;
+                border: 1px solid #d1d5db;
+                overflow: hidden;
+            }
+            .dark .bh-time-group {
+                border-color: rgba(255,255,255,0.2);
+            }
+            .bh-time-prefix {
+                display: flex;
+                align-items: center;
+                padding: 0 0.625rem;
+                font-size: 0.75rem;
+                font-weight: 500;
+                color: #6b7280;
+                background: #f9fafb;
+                border-right: 1px solid #d1d5db;
+            }
+            .dark .bh-time-prefix {
+                background: rgb(31 41 55);
+                border-color: rgba(255,255,255,0.2);
+                color: #9ca3af;
+            }
+            .bh-time-input {
+                border: none;
+                background: transparent;
+                padding: 0.375rem 0.5rem;
+                font-size: 0.875rem;
+                color: #111827;
+                width: 7rem;
+                outline: none;
+            }
+            .dark .bh-time-input {
+                color: #fff;
+            }
+            .bh-time-input:focus {
+                outline: none;
+                box-shadow: none;
+            }
+            .bh-delete-btn {
+                display: flex;
+                align-items: center;
+                padding: 0.25rem;
+                color: #ef4444;
+                cursor: pointer;
+                background: none;
+                border: none;
+                flex-shrink: 0;
+            }
+            .bh-delete-btn:hover {
+                color: #dc2626;
+            }
+            .bh-add-time-btn {
+                display: inline-flex;
+                align-items: center;
+                border-radius: 0.5rem;
+                border: 1px solid #d1d5db;
+                background: #fff;
+                padding: 0.375rem 0.75rem;
+                font-size: 0.75rem;
+                font-weight: 500;
+                color: #374151;
+                cursor: pointer;
+            }
+            .dark .bh-add-time-btn {
+                border-color: rgba(255,255,255,0.1);
+                background: rgb(31 41 55);
+                color: #d1d5db;
+            }
+            .bh-add-time-btn:hover {
+                background: #f9fafb;
+            }
+            .dark .bh-add-time-btn:hover {
+                background: rgb(55 65 81);
+            }
+            .bh-exception-item {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 0.75rem 1rem;
+                border-radius: 0.5rem;
+                border: 1px solid #e5e7eb;
+                background: #fafafa;
+            }
+            .dark .bh-exception-item {
+                border-color: rgba(255,255,255,0.1);
+                background: rgba(31,41,55,0.5);
+            }
+            .bh-setup-btn {
+                display: inline-flex;
+                align-items: center;
+                border-radius: 0.5rem;
+                border: 1px solid #d1d5db;
+                background: #fff;
+                padding: 0.5rem 1rem;
+                font-size: 0.875rem;
+                font-weight: 500;
+                color: #374151;
+                cursor: pointer;
+            }
+            .dark .bh-setup-btn {
+                border-color: rgba(255,255,255,0.1);
+                background: rgb(31 41 55);
+                color: #d1d5db;
+            }
+            .bh-setup-btn:hover {
+                background: #f9fafb;
+            }
+            .bh-section-title {
+                font-size: 1rem;
+                font-weight: 600;
+                color: #111827;
+            }
+            .dark .bh-section-title {
+                color: #fff;
+            }
+        </style>
 
-        {{-- Days of the Week --}}
-        <div class="space-y-2">
-            @foreach($getDays() as $day)
-                <div class="rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10">
-                    {{-- Day Header --}}
-                    <div
-                        class="flex items-center justify-between px-4 py-3 cursor-pointer"
-                        @if($isCollapsible())
-                            x-on:click="toggleCollapse('{{ $day->value }}')"
-                        @endif
-                    >
-                        <div class="flex items-center gap-3">
-                            @if($isCollapsible())
-                                <button
-                                    type="button"
-                                    class="text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
-                                    x-on:click.stop="toggleCollapse('{{ $day->value }}')"
-                                >
-                                    <svg
-                                        class="h-5 w-5 transform transition-transform duration-200"
-                                        :class="{ '-rotate-90': collapsed['{{ $day->value }}'] }"
-                                        xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
+        <div class="bh-card">
+            {{-- Section Header --}}
+            <div class="bh-header">
+                <div class="bh-header-icon">
+                    <svg style="width:1.25rem;height:1.25rem" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                    </svg>
+                </div>
+                <div>
+                    <div class="bh-header-title">{{ __('Business Hours') }}</div>
+                    <div class="bh-header-desc">{{ __('Manage available hours for each weekday') }}</div>
+                </div>
+            </div>
+
+            <div class="bh-body">
+                <div style="display:flex;flex-direction:column;gap:1.5rem">
+                    {{-- Enable Toggle --}}
+                    <div style="display:flex;align-items:center;gap:0.75rem">
+                        <button
+                            type="button"
+                            x-on:click="toggleEnabled()"
+                            class="bh-toggle"
+                            :data-enabled="enabled ? 'true' : 'false'"
+                            role="switch"
+                            :aria-checked="enabled"
+                        >
+                            <span class="bh-toggle-knob"></span>
+                        </button>
+                        <div>
+                            <span style="font-size:0.875rem;font-weight:500;color:#111827">{{ __('Enable') }}</span>
+                            <p style="font-size:0.75rem;color:#6b7280;margin:0">{{ __('Quickly enable or disable business hours') }}</p>
+                        </div>
+                    </div>
+
+                    <div x-show="enabled" x-collapse>
+                        <div style="display:flex;flex-direction:column;gap:1.5rem">
+                            {{-- Timezone Selector --}}
+                            @if($hasTimezone())
+                                <div>
+                                    <label style="display:block;font-size:0.875rem;font-weight:500;color:#374151;margin-bottom:0.375rem">
+                                        {{ __('Timezone') }}
+                                    </label>
+                                    <select
+                                        x-model="state.timezone"
+                                        style="display:block;width:100%;border-radius:0.5rem;border:1px solid #d1d5db;background:#fff;padding:0.5rem 2rem 0.5rem 0.75rem;font-size:0.875rem;color:#111827"
                                     >
-                                        <path fill-rule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
-                                    </svg>
-                                </button>
+                                        @foreach($getTimezoneOptions() as $tz => $label)
+                                            <option value="{{ $tz }}">({{ $tz }}) {{ $label }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
                             @endif
 
-                            <span class="text-sm font-medium text-gray-950 dark:text-white">
-                                {{ $day->label() }}
-                            </span>
+                            {{-- Days of the Week --}}
+                            <div>
+                                @foreach($getDays() as $day)
+                                    <div class="bh-day-row">
+                                        {{-- Toggle --}}
+                                        <button
+                                            type="button"
+                                            x-on:click="toggleDay('{{ $day->value }}')"
+                                            class="bh-toggle"
+                                            :data-enabled="isDayEnabled('{{ $day->value }}') ? 'true' : 'false'"
+                                            role="switch"
+                                            :aria-checked="isDayEnabled('{{ $day->value }}')"
+                                            style="margin-top:0.125rem"
+                                        >
+                                            <span class="bh-toggle-knob"></span>
+                                        </button>
 
-                            <template x-if="!isDayEnabled('{{ $day->value }}')">
-                                <span class="inline-flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-400">
-                                    {{ \ZEDMagdy\FilamentBusinessHours\FilamentBusinessHours::getClosedLabel() }}
-                                </span>
-                            </template>
-                        </div>
+                                        {{-- Day Name --}}
+                                        <span class="bh-day-name">{{ $day->label() }}</span>
 
-                        <button
-                            type="button"
-                            x-on:click.stop="toggleDay('{{ $day->value }}')"
-                            class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-600 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-                            :class="isDayEnabled('{{ $day->value }}') ? 'bg-primary-600' : 'bg-gray-200 dark:bg-gray-700'"
-                            role="switch"
-                            :aria-checked="isDayEnabled('{{ $day->value }}')"
-                        >
-                            <span
-                                class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
-                                :class="isDayEnabled('{{ $day->value }}') ? 'translate-x-5' : 'translate-x-0'"
-                            ></span>
-                        </button>
-                    </div>
+                                        {{-- Content --}}
+                                        <div style="flex:1;min-width:0">
+                                            {{-- Closed State --}}
+                                            <template x-if="!isDayEnabled('{{ $day->value }}')">
+                                                <div class="bh-closed-label">
+                                                    <svg style="width:1rem;height:1rem" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+                                                    </svg>
+                                                    <span>{{ __('Closed') }}</span>
+                                                </div>
+                                            </template>
 
-                    {{-- Time Slots --}}
-                    <div
-                        x-show="isDayEnabled('{{ $day->value }}') && !collapsed['{{ $day->value }}']"
-                        x-collapse
-                        class="border-t border-gray-200 px-4 py-3 dark:border-white/10"
-                    >
-                        <template x-for="(range, slotIndex) in (state.hours['{{ $day->value }}'] || [])" :key="'{{ $day->value }}-' + slotIndex">
-                            <div class="mb-2 flex items-center gap-2">
-                                <input
-                                    type="time"
-                                    :value="getOpenTime('{{ $day->value }}', slotIndex)"
-                                    x-on:change="updateTimeRange('{{ $day->value }}', slotIndex, 'open', $event.target.value)"
-                                    class="fi-input block w-full rounded-lg border-none bg-transparent py-1.5 text-base text-gray-950 transition duration-75 focus:ring-2 focus:ring-primary-600 dark:text-white sm:text-sm sm:leading-6 shadow-sm ring-1 ring-gray-950/10 dark:ring-white/20"
-                                />
-                                <span class="text-sm text-gray-500 dark:text-gray-400">{{ __('to') }}</span>
-                                <input
-                                    type="time"
-                                    :value="getCloseTime('{{ $day->value }}', slotIndex)"
-                                    x-on:change="updateTimeRange('{{ $day->value }}', slotIndex, 'close', $event.target.value)"
-                                    class="fi-input block w-full rounded-lg border-none bg-transparent py-1.5 text-base text-gray-950 transition duration-75 focus:ring-2 focus:ring-primary-600 dark:text-white sm:text-sm sm:leading-6 shadow-sm ring-1 ring-gray-950/10 dark:ring-white/20"
-                                />
-                                <button
-                                    type="button"
-                                    x-on:click="removeTimeSlot('{{ $day->value }}', slotIndex)"
-                                    class="flex-shrink-0 text-danger-600 hover:text-danger-500 dark:text-danger-400 dark:hover:text-danger-300"
-                                >
-                                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clip-rule="evenodd" />
-                                    </svg>
-                                </button>
-                            </div>
-                        </template>
+                                            {{-- Open State --}}
+                                            <template x-if="isDayEnabled('{{ $day->value }}')">
+                                                <div style="display:flex;flex-direction:column;gap:0.5rem">
+                                                    <template x-for="(range, slotIndex) in (state.hours['{{ $day->value }}'] || [])" :key="'{{ $day->value }}-' + slotIndex">
+                                                        <div style="display:flex;align-items:center;gap:0.5rem">
+                                                            <div class="bh-time-group">
+                                                                <span class="bh-time-prefix">{{ __('From') }}</span>
+                                                                <input
+                                                                    type="time"
+                                                                    :value="getOpenTime('{{ $day->value }}', slotIndex)"
+                                                                    x-on:change="updateTimeRange('{{ $day->value }}', slotIndex, 'open', $event.target.value)"
+                                                                    class="bh-time-input"
+                                                                />
+                                                            </div>
 
-                        <button
-                            type="button"
-                            x-on:click="addTimeSlot('{{ $day->value }}')"
-                            class="inline-flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
-                        >
-                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
-                            </svg>
-                            {{ __('Add time slot') }}
-                        </button>
-                    </div>
-                </div>
-            @endforeach
-        </div>
+                                                            <div class="bh-time-group">
+                                                                <span class="bh-time-prefix">{{ __('To') }}</span>
+                                                                <input
+                                                                    type="time"
+                                                                    :value="getCloseTime('{{ $day->value }}', slotIndex)"
+                                                                    x-on:change="updateTimeRange('{{ $day->value }}', slotIndex, 'close', $event.target.value)"
+                                                                    class="bh-time-input"
+                                                                />
+                                                            </div>
 
-        {{-- Exceptions --}}
-        @if($hasExceptions())
-            <div class="rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10">
-                <div
-                    class="flex items-center justify-between px-4 py-3 cursor-pointer"
-                    x-on:click="showExceptions = !showExceptions"
-                >
-                    <div class="flex items-center gap-3">
-                        <button
-                            type="button"
-                            class="text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400"
-                        >
-                            <svg
-                                class="h-5 w-5 transform transition-transform duration-200"
-                                :class="{ '-rotate-90': !showExceptions }"
-                                xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
-                            >
-                                <path fill-rule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
-                            </svg>
-                        </button>
-                        <span class="text-sm font-medium text-gray-950 dark:text-white">
-                            {{ __('Exceptions') }}
-                        </span>
-                        <span
-                            class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-400"
-                            x-text="state.exceptions?.length || 0"
-                        ></span>
-                    </div>
-                </div>
+                                                            <button
+                                                                type="button"
+                                                                x-on:click="removeTimeSlot('{{ $day->value }}', slotIndex)"
+                                                                class="bh-delete-btn"
+                                                            >
+                                                                <svg style="width:1.25rem;height:1.25rem" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                    </template>
 
-                <div
-                    x-show="showExceptions"
-                    x-collapse
-                    class="border-t border-gray-200 px-4 py-3 space-y-3 dark:border-white/10"
-                >
-                    <template x-for="(exception, exIndex) in (state.exceptions || [])" :key="'ex-' + exIndex">
-                        <div class="rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50">
-                            <div class="flex items-center gap-2 mb-2">
-                                <input
-                                    type="date"
-                                    x-model="exception.date"
-                                    class="fi-input block w-full rounded-lg border-none bg-transparent py-1.5 text-base text-gray-950 transition duration-75 focus:ring-2 focus:ring-primary-600 dark:text-white sm:text-sm sm:leading-6 shadow-sm ring-1 ring-gray-950/10 dark:ring-white/20 dark:[color-scheme:dark]"
-                                    placeholder="YYYY-MM-DD or MM-DD"
-                                />
-
-                                <button
-                                    type="button"
-                                    x-on:click="toggleExceptionClosed(exIndex)"
-                                    class="flex-shrink-0 inline-flex items-center rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors"
-                                    :class="exception.hours.length === 0
-                                        ? 'bg-danger-100 text-danger-700 dark:bg-danger-500/20 dark:text-danger-400'
-                                        : 'bg-success-100 text-success-700 dark:bg-success-500/20 dark:text-success-400'"
-                                >
-                                    <span x-text="exception.hours.length === 0 ? '{{ __('Closed') }}' : '{{ __('Custom hours') }}'"></span>
-                                </button>
-
-                                <button
-                                    type="button"
-                                    x-on:click="removeException(exIndex)"
-                                    class="flex-shrink-0 text-danger-600 hover:text-danger-500 dark:text-danger-400 dark:hover:text-danger-300"
-                                >
-                                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clip-rule="evenodd" />
-                                    </svg>
-                                </button>
-                            </div>
-
-                            {{-- Exception time slots --}}
-                            <template x-if="exception.hours.length > 0">
-                                <div class="space-y-2 mt-2">
-                                    <template x-for="(slot, slotIndex) in exception.hours" :key="'ex-' + exIndex + '-slot-' + slotIndex">
-                                        <div class="flex items-center gap-2">
-                                            <input
-                                                type="time"
-                                                :value="getExceptionOpenTime(exIndex, slotIndex)"
-                                                x-on:change="updateExceptionRange(exIndex, slotIndex, 'open', $event.target.value)"
-                                                class="fi-input block w-full rounded-lg border-none bg-transparent py-1.5 text-base text-gray-950 transition duration-75 focus:ring-2 focus:ring-primary-600 dark:text-white sm:text-sm sm:leading-6 shadow-sm ring-1 ring-gray-950/10 dark:ring-white/20"
-                                            />
-                                            <span class="text-sm text-gray-500 dark:text-gray-400">{{ __('to') }}</span>
-                                            <input
-                                                type="time"
-                                                :value="getExceptionCloseTime(exIndex, slotIndex)"
-                                                x-on:change="updateExceptionRange(exIndex, slotIndex, 'close', $event.target.value)"
-                                                class="fi-input block w-full rounded-lg border-none bg-transparent py-1.5 text-base text-gray-950 transition duration-75 focus:ring-2 focus:ring-primary-600 dark:text-white sm:text-sm sm:leading-6 shadow-sm ring-1 ring-gray-950/10 dark:ring-white/20"
-                                            />
-                                            <button
-                                                type="button"
-                                                x-on:click="removeExceptionSlot(exIndex, slotIndex)"
-                                                class="flex-shrink-0 text-danger-600 hover:text-danger-500 dark:text-danger-400 dark:hover:text-danger-300"
-                                            >
-                                                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-                                                </svg>
-                                            </button>
+                                                    <div style="display:flex;justify-content:center;padding-top:0.25rem">
+                                                        <button
+                                                            type="button"
+                                                            x-on:click="addTimeSlot('{{ $day->value }}')"
+                                                            class="bh-add-time-btn"
+                                                        >
+                                                            {{ __('Add time to :day', ['day' => $day->label()]) }}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </template>
                                         </div>
-                                    </template>
+                                    </div>
+                                @endforeach
+                            </div>
 
-                                    <button
-                                        type="button"
-                                        x-on:click="addExceptionSlot(exIndex)"
-                                        class="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
-                                    >
-                                        <svg class="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                            <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
-                                        </svg>
-                                        {{ __('Add time slot') }}
-                                    </button>
+                            {{-- Exceptions --}}
+                            @if($hasExceptions())
+                                <div style="border-top:1px solid #e5e7eb;padding-top:1.25rem">
+                                    <div class="bh-section-title" style="margin-bottom:1rem">{{ __('Exceptions') }}</div>
+
+                                    <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1rem">
+                                        <template x-for="(exception, exIndex) in (state.exceptions || [])" :key="'ex-' + exIndex">
+                                            <div class="bh-exception-item">
+                                                <span style="font-size:0.875rem;color:#6b7280" x-text="formatExceptionDisplay(exception)"></span>
+                                                <div style="display:flex;align-items:center;gap:0.75rem">
+                                                    <span style="font-size:0.875rem;color:#9ca3af" x-text="exception.description || '{{ __('Closed') }}'"></span>
+                                                    <button
+                                                        type="button"
+                                                        x-on:click="removeException(exIndex)"
+                                                        class="bh-delete-btn"
+                                                    >
+                                                        <svg style="width:1.25rem;height:1.25rem" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+
+                                    {{-- Add Exception Form --}}
+                                    <div x-show="showExceptionForm" x-collapse style="margin-bottom:1rem">
+                                        <div style="border-radius:0.5rem;border:1px solid #e5e7eb;background:#fafafa;padding:1rem;display:flex;flex-direction:column;gap:0.75rem">
+                                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+                                                <div>
+                                                    <label style="display:block;font-size:0.75rem;font-weight:500;color:#374151;margin-bottom:0.25rem">{{ __('Date (YYYY-MM-DD or MM-DD)') }}</label>
+                                                    <input
+                                                        type="text"
+                                                        x-model="newException.date"
+                                                        placeholder="12-25 or 2026-12-25"
+                                                        style="display:block;width:100%;border-radius:0.5rem;border:1px solid #d1d5db;padding:0.5rem 0.75rem;font-size:0.875rem;color:#111827;background:#fff"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label style="display:block;font-size:0.75rem;font-weight:500;color:#374151;margin-bottom:0.25rem">{{ __('Description') }}</label>
+                                                    <input
+                                                        type="text"
+                                                        x-model="newException.description"
+                                                        placeholder="{{ __('e.g. Closed for Christmas') }}"
+                                                        style="display:block;width:100%;border-radius:0.5rem;border:1px solid #d1d5db;padding:0.5rem 0.75rem;font-size:0.875rem;color:#111827;background:#fff"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div style="display:flex;align-items:center;gap:0.75rem">
+                                                <button
+                                                    type="button"
+                                                    x-on:click="addException()"
+                                                    :disabled="!newException.date"
+                                                    style="display:inline-flex;align-items:center;border-radius:0.5rem;padding:0.375rem 0.75rem;font-size:0.75rem;font-weight:500;color:#fff;cursor:pointer;border:none;opacity:1;background:var(--c-primary, #239ea0)"
+                                                    :style="!newException.date ? 'opacity:0.5;cursor:not-allowed' : ''"
+                                                >
+                                                    {{ __('Add') }}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    x-on:click="showExceptionForm = false; newException = { date: '', hours: [], description: '' }"
+                                                    class="bh-add-time-btn"
+                                                >
+                                                    {{ __('Cancel') }}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {{-- Set Up Row --}}
+                                    <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid #e5e7eb;padding-top:1rem">
+                                        <p style="font-size:0.875rem;color:#6b7280;margin:0">{{ __('Create exceptions for dates that should be closed') }}</p>
+                                        <button
+                                            type="button"
+                                            x-show="!showExceptionForm"
+                                            x-on:click="showExceptionForm = true"
+                                            class="bh-setup-btn"
+                                        >
+                                            {{ __('Set up') }}
+                                        </button>
+                                    </div>
                                 </div>
-                            </template>
+                            @endif
                         </div>
-                    </template>
-
-                    <button
-                        type="button"
-                        x-on:click="addException()"
-                        class="inline-flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
-                    >
-                        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
-                        </svg>
-                        {{ __('Add exception') }}
-                    </button>
+                    </div>
                 </div>
             </div>
-        @endif
+        </div>
     </div>
 </x-dynamic-component>
