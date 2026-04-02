@@ -27,10 +27,55 @@ class BusinessHoursField extends Field
 
         $this->default(function (): array {
             return [
+                'enabled' => true,
                 'hours' => FilamentBusinessHours::getDefaultHours(),
                 'exceptions' => [],
                 'timezone' => $this->getDefaultTimezone(),
             ];
+        });
+
+        // Normalize exceptions from key-value format to array format on load
+        $this->afterStateHydrated(function (self $component, ?array $state): void {
+            if ($state === null) {
+                return;
+            }
+
+            $exceptions = $state['exceptions'] ?? [];
+
+            if (! is_array($exceptions)) {
+                $exceptions = [];
+            }
+
+            // Already in array-of-objects format
+            if ($exceptions !== [] && isset($exceptions[0]) && is_array($exceptions[0])) {
+                return;
+            }
+
+            // Convert key-value format { "12-25": [] } to array format
+            $normalized = [];
+
+            foreach ($exceptions as $key => $value) {
+                if (is_int($key) && is_array($value) && isset($value['date'])) {
+                    $normalized[] = $value;
+
+                    continue;
+                }
+
+                $date = (string) $key;
+                $ranges = is_array($value) ? $value : [];
+                $range = $ranges[0] ?? '';
+                $parts = $range !== '' ? explode('-', $range, 2) : ['', ''];
+
+                $normalized[] = [
+                    'date' => $date,
+                    'start' => $parts[0] ?? '',
+                    'end' => $parts[1] ?? '',
+                    'label' => '',
+                ];
+            }
+
+            $state['exceptions'] = $normalized;
+            $component->state($state);
         });
 
         $this->dehydrateStateUsing(function (?array $state): ?array {
