@@ -6,71 +6,62 @@
             showExceptionForm: false,
             newException: { date: '', start: '', end: '', label: '' },
 
-            init() {
-                this.ensureState();
-                this.normalizeExceptions();
-                this.enabled = this.state?.enabled !== false;
-
-                this.$watch('state', (val) => {
-                    if (val && typeof val === 'object' && !val.hours) {
-                        this.ensureState();
-                        this.normalizeExceptions();
-                    }
-                });
+            get s() {
+                return (this.state && typeof this.state === 'object') ? this.state : null;
             },
 
-            normalizeExceptions() {
-                if (!this.state?.exceptions) return;
-                if (!Array.isArray(this.state.exceptions)) {
-                    const arr = [];
-                    for (const [date, hours] of Object.entries(this.state.exceptions)) {
-                        const range = Array.isArray(hours) && hours.length > 0 ? hours[0] : '';
-                        const parts = range ? range.split('-') : ['', ''];
-                        arr.push({ date, start: parts[0] || '', end: parts[1] || '', label: '' });
+            get hours() {
+                return this.s?.hours || {};
+            },
+
+            get exceptions() {
+                const ex = this.s?.exceptions;
+                return Array.isArray(ex) ? ex : [];
+            },
+
+            get timezone() {
+                return this.s?.timezone || @js($getDefaultTimezone());
+            },
+
+            init() {
+                this.$watch('state', (val) => {
+                    if (val && typeof val === 'object') {
+                        this.enabled = val.enabled !== false;
+                        if (val.exceptions && !Array.isArray(val.exceptions)) {
+                            const arr = [];
+                            for (const [date, hours] of Object.entries(val.exceptions)) {
+                                const range = Array.isArray(hours) && hours.length > 0 ? hours[0] : '';
+                                const parts = range ? range.split('-') : ['', ''];
+                                arr.push({ date, start: parts[0] || '', end: parts[1] || '', label: '' });
+                            }
+                            val.exceptions = arr;
+                        }
                     }
-                    this.state.exceptions = arr;
+                });
+
+                if (this.s) {
+                    this.enabled = this.s.enabled !== false;
                 }
             },
 
             toggleEnabled() {
+                if (!this.s) return;
                 this.enabled = !this.enabled;
                 this.state.enabled = this.enabled;
             },
 
-            ensureState() {
-                if (!this.state || typeof this.state !== 'object') {
-                    this.state = {
-                        hours: @js(\ZEDMagdy\FilamentBusinessHours\FilamentBusinessHours::getDefaultHours()),
-                        exceptions: [],
-                        timezone: @js($getDefaultTimezone()),
-                        enabled: true,
-                    };
-                }
-                if (!this.state.hours) {
-                    this.state.hours = @js(\ZEDMagdy\FilamentBusinessHours\FilamentBusinessHours::getDefaultHours());
-                }
-                if (!this.state.exceptions) {
-                    this.state.exceptions = [];
-                }
-            },
-
             isDayEnabled(day) {
-                if (!this.state || !this.state.hours) return false;
-                const hours = this.state.hours[day];
-                return Array.isArray(hours) && hours.length > 0;
+                const h = this.hours[day];
+                return Array.isArray(h) && h.length > 0;
             },
 
             toggleDay(day) {
-                this.ensureState();
-                if (this.isDayEnabled(day)) {
-                    this.state.hours[day] = [];
-                } else {
-                    this.state.hours[day] = ['09:00-17:00'];
-                }
+                if (!this.s) return;
+                this.state.hours[day] = this.isDayEnabled(day) ? [] : ['09:00-17:00'];
             },
 
             addTimeSlot(day) {
-                this.ensureState();
+                if (!this.s) return;
                 if (!Array.isArray(this.state.hours[day])) {
                     this.state.hours[day] = [];
                 }
@@ -78,13 +69,13 @@
             },
 
             removeTimeSlot(day, index) {
-                this.ensureState();
+                if (!this.s) return;
                 this.state.hours[day].splice(index, 1);
             },
 
             updateTimeRange(day, index, type, value) {
-                this.ensureState();
-                const current = this.state.hours[day][index] || '09:00-17:00';
+                if (!this.s?.hours?.[day]?.[index]) return;
+                const current = this.state.hours[day][index];
                 const parts = current.split('-');
                 if (type === 'open') {
                     this.state.hours[day][index] = value + '-' + (parts[1] || '17:00');
@@ -94,18 +85,19 @@
             },
 
             getOpenTime(day, index) {
-                if (!this.state?.hours?.[day]) return '09:00';
-                const range = this.state.hours[day]?.[index] || '09:00-17:00';
+                const range = this.hours[day]?.[index];
+                if (!range) return '09:00';
                 return range.split('-')[0] || '09:00';
             },
 
             getCloseTime(day, index) {
-                if (!this.state?.hours?.[day]) return '17:00';
-                const range = this.state.hours[day]?.[index] || '09:00-17:00';
+                const range = this.hours[day]?.[index];
+                if (!range) return '17:00';
                 return range.split('-')[1] || '17:00';
             },
 
             addException() {
+                if (!this.s) return;
                 if (!Array.isArray(this.state.exceptions)) {
                     this.state.exceptions = [];
                 }
@@ -120,11 +112,12 @@
             },
 
             removeException(index) {
+                if (!this.s) return;
                 this.state.exceptions.splice(index, 1);
             },
 
             formatExceptionDisplay(ex) {
-                let text = ex.date;
+                let text = ex.date || '';
                 if (ex.start && ex.end) {
                     text += ' - ' + ex.start + '-' + ex.end;
                 } else {
@@ -416,8 +409,8 @@
                                     <label class="bh-form-label" style="font-size:0.875rem;margin-bottom:0.375rem">
                                         {{ __('Timezone') }}
                                     </label>
-                                    <select x-on:change="ensureState(); state.timezone = $event.target.value"
-                                        x-effect="if (state?.timezone) $el.value = state.timezone" class="bh-form-input" style="padding-right:2rem">
+                                    <select x-on:change="if (s) state.timezone = $event.target.value"
+                                        x-effect="$el.value = timezone" class="bh-form-input" style="padding-right:2rem">
                                         @foreach($getTimezoneOptions() as $tz => $label)
                                             <option value="{{ $tz }}">({{ $tz }}) {{ $label }}</option>
                                         @endforeach
@@ -460,7 +453,7 @@
                                             {{-- Open State --}}
                                             <template x-if="isDayEnabled('{{ $day->value }}')">
                                                 <div style="display:flex;flex-direction:column;gap:0.5rem">
-                                                    <template x-for="(range, slotIndex) in (state?.hours?.['{{ $day->value }}'] || [])" :key="'{{ $day->value }}-' + slotIndex">
+                                                    <template x-for="(range, slotIndex) in (hours['{{ $day->value }}'] || [])" :key="'{{ $day->value }}-' + slotIndex">
                                                         <div style="display:flex;align-items:center;gap:0.5rem">
                                                             <div class="bh-time-group">
                                                                 <span class="bh-time-prefix">{{ __('From') }}</span>
@@ -517,7 +510,7 @@
 
                                     {{-- Exception List --}}
                                     <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1rem">
-                                        <template x-for="(exception, exIndex) in (state?.exceptions || [])" :key="'ex-' + exIndex">
+                                        <template x-for="(exception, exIndex) in exceptions" :key="'ex-' + exIndex">
                                             <div class="bh-exception-item">
                                                 <span style="font-size:0.875rem;color:#6b7280" x-text="formatExceptionDisplay(exception)"></span>
                                                 <div style="display:flex;align-items:center;gap:0.75rem">
