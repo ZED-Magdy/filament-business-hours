@@ -416,7 +416,8 @@
                                     <label class="bh-form-label" style="font-size:0.875rem;margin-bottom:0.375rem">
                                         {{ __('Timezone') }}
                                     </label>
-                                    <select x-model="state && state.timezone" class="bh-form-input" style="padding-right:2rem">
+                                    <select x-on:change="ensureState(); state.timezone = $event.target.value"
+                                        x-effect="if (state?.timezone) $el.value = state.timezone" class="bh-form-input" style="padding-right:2rem">
                                         @foreach($getTimezoneOptions() as $tz => $label)
                                             <option value="{{ $tz }}">({{ $tz }}) {{ $label }}</option>
                                         @endforeach
