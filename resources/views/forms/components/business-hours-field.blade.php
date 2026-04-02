@@ -4,6 +4,7 @@
         $currentState = $getState();
     @endphp
     <div
+        wire:ignore
         x-data="{
             state: @js($currentState),
             enabled: true,
