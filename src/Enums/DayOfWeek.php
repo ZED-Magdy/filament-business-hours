@@ -39,4 +39,39 @@ enum DayOfWeek: string
             self::Sunday => __('Sun'),
         };
     }
+
+    /**
+     * Whether this day falls on the weekend (Saturday or Sunday).
+     */
+    public function isWeekend(): bool
+    {
+        return match ($this) {
+            self::Saturday, self::Sunday => true,
+            default => false,
+        };
+    }
+
+    /**
+     * Whether this day falls on a weekday (Monday through Friday).
+     */
+    public function isWeekday(): bool
+    {
+        return ! $this->isWeekend();
+    }
+
+    /**
+     * ISO-8601 numeric representation of the day (Monday = 1, Sunday = 7).
+     */
+    public function toIsoNumeric(): int
+    {
+        return match ($this) {
+            self::Monday => 1,
+            self::Tuesday => 2,
+            self::Wednesday => 3,
+            self::Thursday => 4,
+            self::Friday => 5,
+            self::Saturday => 6,
+            self::Sunday => 7,
+        };
+    }
 }

@@ -7,6 +7,7 @@ namespace ZEDMagdy\FilamentBusinessHours\Tests;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as Orchestra;
+use ZEDMagdy\FilamentBusinessHours\FilamentBusinessHours;
 use ZEDMagdy\FilamentBusinessHours\FilamentBusinessHoursServiceProvider;
 
 class TestCase extends Orchestra
@@ -33,5 +34,14 @@ class TestCase extends Orchestra
     public function getEnvironmentSetUp($app): void
     {
         config()->set('database.default', 'testing');
+    }
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Flush the config cache so that runtime config()->set() overrides in
+        // individual tests are always respected.
+        FilamentBusinessHours::flushCache();
     }
 }
