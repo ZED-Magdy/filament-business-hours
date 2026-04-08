@@ -6,6 +6,8 @@ namespace ZEDMagdy\FilamentBusinessHours;
 
 use Filament\Contracts\Plugin;
 use Filament\Panel;
+use InvalidArgumentException;
+use ZEDMagdy\FilamentBusinessHours\Support\TimezoneResolver;
 
 class FilamentBusinessHoursPlugin implements Plugin
 {
@@ -29,8 +31,19 @@ class FilamentBusinessHoursPlugin implements Plugin
         return 'filament-business-hours';
     }
 
+    /**
+     * Set the timezone used for open/closed calculations.
+     *
+     * @throws InvalidArgumentException if the string is not a recognised PHP timezone identifier.
+     */
     public function timezone(?string $timezone): static
     {
+        if ($timezone !== null && ! TimezoneResolver::isValid($timezone)) {
+            throw new InvalidArgumentException(
+                "Invalid timezone \"{$timezone}\". Use a valid PHP timezone identifier (e.g. \"Europe/London\")."
+            );
+        }
+
         $this->timezone = $timezone;
 
         return $this;
@@ -38,9 +51,7 @@ class FilamentBusinessHoursPlugin implements Plugin
 
     public function getTimezone(): string
     {
-        return $this->timezone
-            ?? config('filament-business-hours.timezone')
-            ?? config('app.timezone', 'UTC');
+        return TimezoneResolver::resolve($this->timezone);
     }
 
     public function register(Panel $panel): void

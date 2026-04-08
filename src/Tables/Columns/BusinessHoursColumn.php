@@ -8,7 +8,8 @@ use Carbon\Carbon;
 use Closure;
 use Filament\Tables\Columns\Column;
 use Spatie\OpeningHours\OpeningHours;
-use ZEDMagdy\FilamentBusinessHours\Enums\DayOfWeek;
+use ZEDMagdy\FilamentBusinessHours\Support\ScheduleFormatter;
+use ZEDMagdy\FilamentBusinessHours\Support\TimezoneResolver;
 
 class BusinessHoursColumn extends Column
 {
@@ -50,9 +51,7 @@ class BusinessHoursColumn extends Column
             return false;
         }
 
-        $timezone = $this->resolveTimezone();
-
-        return $openingHours->isOpenAt(Carbon::now($timezone));
+        return $openingHours->isOpenAt(Carbon::now($this->resolveTimezone()));
     }
 
     /** @return array<string, array<string>> */
@@ -64,20 +63,7 @@ class BusinessHoursColumn extends Column
             return [];
         }
 
-        $schedule = [];
-
-        foreach (DayOfWeek::cases() as $day) {
-            $hoursForDay = $openingHours->forDay($day->value);
-            $ranges = [];
-
-            foreach ($hoursForDay as $range) {
-                $ranges[] = (string) $range;
-            }
-
-            $schedule[$day->value] = $ranges;
-        }
-
-        return $schedule;
+        return ScheduleFormatter::format($openingHours);
     }
 
     protected function resolveOpeningHours(): ?OpeningHours
@@ -88,29 +74,13 @@ class BusinessHoursColumn extends Column
             return null;
         }
 
-        $hours = $state['hours'] ?? $state;
-        $exceptions = $state['exceptions'] ?? [];
-        $timezone = $state['timezone'] ?? null;
-
-        $config = is_array($hours) ? $hours : [];
-
-        if (! empty($exceptions)) {
-            $config['exceptions'] = $exceptions;
-        }
-
-        if ($timezone) {
-            $config['timezone'] = $timezone;
-        }
-
-        return OpeningHours::create($config);
+        return ScheduleFormatter::resolveOpeningHours($state);
     }
 
     protected function resolveTimezone(): string
     {
         $state = $this->getState();
 
-        return $state['timezone']
-            ?? config('filament-business-hours.timezone')
-            ?? config('app.timezone', 'UTC');
+        return TimezoneResolver::resolve($state['timezone'] ?? null);
     }
 }

@@ -8,6 +8,8 @@ use Closure;
 use Filament\Forms\Components\Field;
 use ZEDMagdy\FilamentBusinessHours\Enums\DayOfWeek;
 use ZEDMagdy\FilamentBusinessHours\FilamentBusinessHours;
+use ZEDMagdy\FilamentBusinessHours\Support\ExceptionNormalizer;
+use ZEDMagdy\FilamentBusinessHours\Support\TimezoneResolver;
 
 class BusinessHoursField extends Field
 {
@@ -34,7 +36,7 @@ class BusinessHoursField extends Field
             ];
         });
 
-        // Normalize exceptions from key-value format to array format on load
+        // Normalize exceptions from key-value format to array-of-objects format on load.
         $this->afterStateHydrated(function (self $component, ?array $state): void {
             if ($state === null) {
                 return;
@@ -46,35 +48,7 @@ class BusinessHoursField extends Field
                 $exceptions = [];
             }
 
-            // Already in array-of-objects format
-            if ($exceptions !== [] && isset($exceptions[0]) && is_array($exceptions[0])) {
-                return;
-            }
-
-            // Convert key-value format { "12-25": [] } to array format
-            $normalized = [];
-
-            foreach ($exceptions as $key => $value) {
-                if (is_int($key) && is_array($value) && isset($value['date'])) {
-                    $normalized[] = $value;
-
-                    continue;
-                }
-
-                $date = (string) $key;
-                $ranges = is_array($value) ? $value : [];
-                $range = $ranges[0] ?? '';
-                $parts = $range !== '' ? explode('-', $range, 2) : ['', ''];
-
-                $normalized[] = [
-                    'date' => $date,
-                    'start' => $parts[0] ?? '',
-                    'end' => $parts[1] ?? '',
-                    'label' => '',
-                ];
-            }
-
-            $state['exceptions'] = $normalized;
+            $state['exceptions'] = ExceptionNormalizer::toArrayOfObjects($exceptions);
             $component->state($state);
         });
 
@@ -83,6 +57,7 @@ class BusinessHoursField extends Field
                 return null;
             }
 
+            // Sanitise hours: keep only valid "HH:MM-HH:MM" strings.
             $hours = $state['hours'] ?? [];
 
             foreach ($hours as $day => $ranges) {
@@ -92,30 +67,18 @@ class BusinessHoursField extends Field
                     continue;
                 }
 
-                $hours[$day] = array_values(array_filter($ranges, fn ($range): bool => is_string($range) && str_contains($range, '-') && $range !== '-'
-                ));
+                $hours[$day] = array_values(
+                    array_filter(
+                        $ranges,
+                        fn ($range): bool => is_string($range) && str_contains($range, '-') && $range !== '-'
+                    )
+                );
             }
 
+            // Persist exception details in array-of-objects form so the form
+            // can re-hydrate them as-is, while also recording the key-value
+            // form used by spatie/opening-hours in the same payload.
             $exceptions = $state['exceptions'] ?? [];
-            $normalized = [];
-
-            foreach ($exceptions as $exception) {
-                if (! is_array($exception) || empty($exception['date'] ?? '')) {
-                    continue;
-                }
-
-                $date = $exception['date'];
-                $start = $exception['start'] ?? '';
-                $end = $exception['end'] ?? '';
-
-                if ($start !== '' && $end !== '') {
-                    $normalized[$date] = [$start.'-'.$end];
-                } else {
-                    $normalized[$date] = [];
-                }
-            }
-
-            // Preserve the full exception data for the form to read back
             $exceptionDetails = [];
 
             foreach ($exceptions as $exception) {
@@ -185,9 +148,7 @@ class BusinessHoursField extends Field
 
     public function getDefaultTimezone(): string
     {
-        return $this->defaultTimezone
-            ?? config('filament-business-hours.timezone')
-            ?? config('app.timezone', 'UTC');
+        return TimezoneResolver::resolve($this->defaultTimezone);
     }
 
     /** @return array<DayOfWeek> */
@@ -196,11 +157,15 @@ class BusinessHoursField extends Field
         return DayOfWeek::cases();
     }
 
-    /** @return array<string, string> */
+    /**
+     * Return all PHP timezone identifiers as a key-value map.
+     * The result is cached statically so repeated renders do not call
+     * timezone_identifiers_list() more than once per process.
+     *
+     * @return array<string, string>
+     */
     public function getTimezoneOptions(): array
     {
-        return collect(timezone_identifiers_list())
-            ->mapWithKeys(fn (string $tz): array => [$tz => $tz])
-            ->all();
+        return array_combine(TimezoneResolver::all(), TimezoneResolver::all());
     }
 }

@@ -10,11 +10,23 @@ use Spatie\OpeningHours\OpeningHours;
 use Spatie\OpeningHours\OpeningHoursForDay;
 use Spatie\OpeningHours\TimeRange;
 use ZEDMagdy\FilamentBusinessHours\FilamentBusinessHours;
+use ZEDMagdy\FilamentBusinessHours\Support\ExceptionNormalizer;
+use ZEDMagdy\FilamentBusinessHours\Support\TimezoneResolver;
 
 trait HasBusinessHours
 {
+    /**
+     * Per-instance cache so that multiple calls within a single request do not
+     * rebuild the OpeningHours object from scratch each time.
+     */
+    private ?OpeningHours $cachedOpeningHours = null;
+
     public function getOpeningHours(): OpeningHours
     {
+        if ($this->cachedOpeningHours !== null) {
+            return $this->cachedOpeningHours;
+        }
+
         $hoursColumn = FilamentBusinessHours::getHoursColumn();
         $exceptionsColumn = FilamentBusinessHours::getExceptionsColumn();
         $timezoneColumn = FilamentBusinessHours::getTimezoneColumn();
@@ -38,32 +50,24 @@ trait HasBusinessHours
         }
 
         if (! empty($exceptions)) {
-            $normalizedExceptions = [];
-
-            foreach ($exceptions as $key => $value) {
-                if (is_array($value) && isset($value['date'])) {
-                    $date = $value['date'];
-                    $start = $value['start'] ?? '';
-                    $end = $value['end'] ?? '';
-
-                    if ($start !== '' && $end !== '') {
-                        $normalizedExceptions[$date] = [$start.'-'.$end];
-                    } else {
-                        $normalizedExceptions[$date] = [];
-                    }
-                } else {
-                    $normalizedExceptions[$key] = is_array($value) ? $value : [];
-                }
-            }
-
-            $config['exceptions'] = $normalizedExceptions;
+            $config['exceptions'] = ExceptionNormalizer::toKeyValue($exceptions);
         }
 
         if ($timezone) {
             $config['timezone'] = $timezone;
         }
 
-        return OpeningHours::create($config);
+        return $this->cachedOpeningHours = OpeningHours::create($config);
+    }
+
+    /**
+     * Discard the cached OpeningHours instance, e.g. after the model is updated.
+     */
+    public function flushOpeningHoursCache(): static
+    {
+        $this->cachedOpeningHours = null;
+
+        return $this;
     }
 
     public function isBusinessHoursEnabled(): bool
@@ -136,10 +140,9 @@ trait HasBusinessHours
         $timezoneColumn = FilamentBusinessHours::getTimezoneColumn();
         $data = $this->{$hoursColumn} ?? [];
 
-        return $data['timezone']
-            ?? $this->{$timezoneColumn}
-            ?? config('filament-business-hours.timezone')
-            ?? config('app.timezone', 'UTC');
+        return TimezoneResolver::resolve(
+            $data['timezone'] ?? $this->{$timezoneColumn} ?? null
+        );
     }
 
     /** @return array<string, string> */
